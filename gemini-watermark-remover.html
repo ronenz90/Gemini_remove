@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gemini Watermark Remover</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Heebo:wght@300;400;700;900&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0c0c10;--card:#13131a;--border:#22223a;
+  --accent:#7c6af7;--glow:rgba(124,106,247,.22);
+  --green:#1fe8a0;--red:#f74f6a;--text:#eeeef5;--muted:#55556e;
+}
+body{font-family:'Heebo',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:40px 20px 80px}
+.page{width:100%;max-width:920px}
+.header{text-align:center;margin-bottom:44px}
+.eyebrow{font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:10px}
+.eyebrow::before,.eyebrow::after{content:'';width:28px;height:1px;background:var(--accent);opacity:.4}
+h1{font-size:clamp(26px,5vw,46px);font-weight:900;line-height:1.1;letter-spacing:-.02em;margin-bottom:12px}
+h1 span{background:linear-gradient(90deg,var(--accent),#b06af7);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.tagline{color:var(--muted);font-size:14px;font-weight:300;max-width:440px;margin:0 auto;line-height:1.6}
+
+.dropzone{position:relative;border:1.5px dashed var(--border);border-radius:20px;background:var(--card);padding:56px 40px;text-align:center;cursor:pointer;transition:border-color .25s,box-shadow .25s;margin-bottom:20px;overflow:hidden}
+.dropzone::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 110%,var(--glow),transparent 65%);opacity:0;transition:opacity .3s}
+.dropzone:hover,.dropzone.over{border-color:var(--accent);box-shadow:0 0 48px var(--glow)}
+.dropzone:hover::before,.dropzone.over::before{opacity:1}
+.drop-icon{width:64px;height:64px;margin:0 auto 18px;display:flex;align-items:center;justify-content:center;background:rgba(124,106,247,.1);border-radius:16px;font-size:28px}
+.drop-title{font-size:16px;font-weight:700;margin-bottom:5px}
+.drop-sub{font-size:13px;color:var(--muted)}
+#fileInput{display:none}
+
+.result-wrap{display:none;flex-direction:column;gap:16px}
+.result-wrap.show{display:flex}
+
+/* Progress */
+.prog-card{background:transparent;border:none;border-radius:0;padding:0;display:none;align-items:center;gap:14px}
+.prog-card.show{display:flex}
+.spinner{width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.prog-text{flex:1}
+.prog-label{font-size:13px;font-weight:700;margin-bottom:4px}
+.prog-sub{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace}
+.prog-bar-wrap{height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-top:8px}
+.prog-bar{height:100%;background:linear-gradient(90deg,var(--accent),var(--green));width:0%;transition:width .3s ease}
+.prog-bar.active{background-size:200% 100%;animation:shimmer 1.2s infinite linear;background-image:linear-gradient(90deg,var(--accent) 0%,var(--green) 40%,#7ff5d0 55%,var(--green) 70%,var(--accent) 100%)}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* Main layout: preview left, controls right */
+.main-grid{display:grid;grid-template-columns:1fr 300px;gap:16px;align-items:start}
+@media(max-width:680px){.main-grid{grid-template-columns:1fr}}
+
+/* Canvas preview with debug overlay */
+.preview-pane{background:var(--card);border:1px solid var(--border);border-radius:16px;overflow:hidden}
+.preview-pane-head{padding:10px 16px;border-bottom:1px solid var(--border);font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;justify-content:space-between}
+.preview-tabs{display:flex;gap:4px}
+.tab-btn{background:none;border:1px solid var(--border);color:var(--muted);font-family:'DM Mono',monospace;font-size:10px;padding:3px 10px;border-radius:6px;cursor:pointer;transition:all .2s}
+.tab-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.canvas-wrap{position:relative;background:repeating-conic-gradient(#191922 0% 25%,#141419 0% 50%) 0 0/16px 16px;padding:12px;display:flex;align-items:center;justify-content:center;min-height:200px}
+canvas{max-width:100%;max-height:420px;border-radius:4px;display:block}
+/* Debug overlay */
+#debugOverlay{position:absolute;pointer-events:none}
+
+/* Controls pane */
+.ctrl-pane{display:flex;flex-direction:column;gap:12px}
+.ctrl-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px}
+.ctrl-card-title{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.ctrl-card-title::after{content:'';flex:1;height:1px;background:var(--border)}
+.ctrl{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+.ctrl:last-child{margin-bottom:0}
+.ctrl label{font-size:12px;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+.ctrl label span{font-family:'DM Mono',monospace;color:var(--accent);font-size:11px}
+input[type=range]{width:100%;-webkit-appearance:none;height:3px;background:var(--border);border-radius:2px;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:var(--accent);border-radius:50%;cursor:pointer}
+
+/* Info chips */
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:5px;background:rgba(124,106,247,.08);border:1px solid rgba(124,106,247,.15);border-radius:20px;padding:4px 11px;font-size:11px;color:var(--muted);font-family:'DM Mono',monospace}
+.chip b{color:var(--accent)}
+.chip.ok{background:rgba(31,232,160,.08);border-color:rgba(31,232,160,.2)}
+.chip.ok b{color:var(--green)}
+
+/* Buttons */
+.btn-row{display:flex;gap:8px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:10px 18px;border-radius:10px;font-family:'Heebo',sans-serif;font-size:13px;font-weight:700;cursor:pointer;border:none;transition:all .2s;white-space:nowrap}
+.btn-main{background:var(--accent);color:#fff;box-shadow:0 4px 16px var(--glow)}
+.btn-main:hover{filter:brightness(1.15);transform:translateY(-1px)}
+.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text)}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+.btn-dl{background:var(--green);color:#0a0f0c}
+.btn-dl:hover{filter:brightness(1.1);transform:translateY(-1px)}
+.btn-sm{padding:7px 13px;font-size:12px}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px 20px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:10px;transition:transform .35s cubic-bezier(.34,1.56,.64,1);z-index:100;white-space:nowrap}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.toast.ok{border-color:var(--green);color:var(--green)}
+</style>
+</head>
+<body>
+<div class="page">
+<div class="header">
+  <div class="eyebrow">✦ gemini watermark eraser</div>
+  <h1>הסר את <span>הכוכב של Gemini</span></h1>
+  <p class="tagline">כוון את האזור בדיוק עם הסליידרים, ראה תצוגה מקדימה בזמן אמת, ולחץ הסר</p>
+</div>
+
+<div class="dropzone" id="dz">
+  <div class="drop-icon">🖼</div>
+  <div class="drop-title">גרור תמונה לכאן</div>
+  <div class="drop-sub">או לחץ לבחירה · PNG / JPG / WEBP</div>
+  <input type="file" id="fileInput" accept="image/*">
+</div>
+
+<div class="result-wrap" id="rw">
+
+  <div class="main-grid" id="mainGrid" style="display:none">
+
+    <!-- Preview -->
+    <div class="preview-pane">
+      <div class="preview-pane-head">
+        <span>תצוגה מקדימה</span>
+        <div class="preview-tabs">
+          <button class="tab-btn active" id="tabOrig" onclick="showTab('orig')">מקורית</button>
+          <button class="tab-btn" id="tabClean" onclick="showTab('clean')">✦ תוצאה</button>
+        </div>
+      </div>
+      <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="cOrig"></canvas>
+        <canvas id="cClean" style="display:none"></canvas>
+        <canvas id="cDebug" style="display:none;position:absolute;top:12px;left:12px"></canvas>
+      </div>
+      <!-- Before/after strip — visible after processing -->
+      <div id="resultStrip" style="display:none;border-top:1px solid var(--border);padding:14px 16px;background:rgba(31,232,160,.04)">
+        <div style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--green);margin-bottom:10px">✦ לפני / אחרי — זום על אזור הכוכב</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:6px;font-family:'DM Mono',monospace">לפני</div>
+            <canvas id="cThumbOrig" style="width:100%;border-radius:6px;border:1px solid var(--border);display:block;image-rendering:pixelated"></canvas>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--green);margin-bottom:6px;font-family:'DM Mono',monospace">אחרי ✦</div>
+            <canvas id="cThumbClean" style="width:100%;border-radius:6px;border:1px solid rgba(31,232,160,.35);display:block;image-rendering:pixelated"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="ctrl-pane">
+
+      <div class="ctrl-card">
+        <div class="ctrl-card-title" id="starCardTitle" onclick="toggleStarCard()" style="cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center">
+          <span>מיקום כוכב</span>
+          <span id="starCardArrow" style="font-size:10px;color:var(--muted);transition:transform .2s">▼</span>
+        </div>
+
+        <div id="starCardBody" style="display:none">
+        <div class="ctrl">
+          <label>מרווח מימין (px) <span id="vOffX">14</span></label>
+          <input type="range" id="sOffX" min="0" max="150" value="14">
+        </div>
+        <div class="ctrl">
+          <label>מרווח מתחתית (px) <span id="vOffY">14</span></label>
+          <input type="range" id="sOffY" min="0" max="150" value="14">
+        </div>
+        <div class="ctrl">
+          <label>גודל כוכב (px) <span id="vSize">50</span></label>
+          <input type="range" id="sSize" min="8" max="200" value="50">
+        </div>
+        <div class="ctrl">
+          <label>מרווח נוסף סביב (px) <span id="vMargin">3</span></label>
+          <input type="range" id="sMargin" min="0" max="8" value="3">
+        </div>
+
+        <button class="btn btn-ghost btn-sm" id="btnPreview" style="width:100%;justify-content:center;margin-top:4px">
+          👁 הצג אזור על התמונה
+        </button>
+        </div>
+      </div>
+
+      <div class="ctrl-card" id="detectedCard" style="display:none">
+        <div class="ctrl-card-title">זיהוי אוטומטי</div>
+        <div class="chips" id="chipsEl"></div>
+      </div>
+
+      <div class="ctrl-card">
+        <div class="ctrl-card-title">פעולות</div>
+        <div class="btn-row">
+          <button class="btn btn-main" id="btnRun" style="flex:1;justify-content:center">✦ הסר כוכב</button>
+          <button class="btn btn-ghost" id="btnReset">↩</button>
+        </div>
+        <button class="btn btn-dl" id="btnDl" style="width:100%;justify-content:center;margin-top:8px;display:none">
+          ⬇ הורד PNG נקי
+        </button>
+
+        <!-- Progress — shown only during processing -->
+        <div class="prog-card" id="progCard" style="margin-top:12px;padding:14px 16px">
+          <div class="spinner"></div>
+          <div class="prog-text">
+            <div class="prog-label" id="progLabel">מעבד...</div>
+            <div class="prog-sub" id="progSub"></div>
+            <div class="prog-bar-wrap"><div class="prog-bar" id="progBar"></div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let img=null, fname='image', currentTab='orig';
+let autoWx=0,autoWy=0,autoWw=0,autoWh=0,autoOk=false;
+
+const dz=document.getElementById('dz');
+const fi=document.getElementById('fileInput');
+const rw=document.getElementById('rw');
+const cOrig=document.getElementById('cOrig');
+const cClean=document.getElementById('cClean');
+const cDebug=document.getElementById('cDebug');
+const mainGrid=document.getElementById('mainGrid');
+
+/* ── Sliders ────────────────────────────────────── */
+const sliders=[['sOffX','vOffX'],['sOffY','vOffY'],['sSize','vSize'],['sMargin','vMargin']];
+sliders.forEach(([id,vid])=>{
+  document.getElementById(id).addEventListener('input',()=>{
+    document.getElementById(vid).textContent=document.getElementById(id).value;
+  });
+});
+
+/* ── Events ─────────────────────────────────────── */
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('over');});
+dz.addEventListener('dragleave',()=>dz.classList.remove('over'));
+dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('over');loadFile(e.dataTransfer.files[0]);});
+dz.addEventListener('click',()=>fi.click());
+fi.addEventListener('change',e=>loadFile(e.target.files[0]));
+document.getElementById('btnRun').addEventListener('click',runFill);
+document.getElementById('btnReset').addEventListener('click',reset);
+document.getElementById('btnDl').addEventListener('click',download);
+document.getElementById('btnPreview').addEventListener('click',drawDebugOverlay);
+
+/* ── Tab switching ───────────────────────────────── */
+function showTab(tab){
+  currentTab=tab;
+  cOrig.style.display=tab==='orig'?'block':'none';
+  cClean.style.display=tab==='clean'?'block':'none';
+  cDebug.style.display='none';
+  document.getElementById('tabOrig').classList.toggle('active',tab==='orig');
+  document.getElementById('tabClean').classList.toggle('active',tab==='clean');
+}
+
+/* ── Load ───────────────────────────────────────── */
+function loadFile(file){
+  if(!file||!file.type.startsWith('image/'))return;
+  fname=file.name.replace(/\.[^.]+$/,'');
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const i=new Image();
+    i.onload=()=>{
+      img=i;
+      cOrig.width=img.width;cOrig.height=img.height;
+      cOrig.getContext('2d').drawImage(img,0,0);
+      cClean.style.display='none';
+      document.getElementById('btnDl').style.display='none';
+      showTab('orig');
+      rw.classList.add('show');dz.style.display='none';
+      mainGrid.style.display='grid';
+      autoDetect();
+    };
+    i.src=e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+/* ── Generate Gemini star template ────────────────────────────
+   The Gemini star is a 4-pointed star (rhombus-like petals).
+   We generate it mathematically at a given size.
+   Returns a Float32Array of luminance values (0=bg, 1=star).
+──────────────────────────────────────────────────────────────── */
+function makeStarTemplate(sz){
+  // sz = side of the bounding square in pixels
+  const t=new Float32Array(sz*sz);
+  const cx=sz/2, cy=sz/2;
+  // 4-pointed star: a point (x,y) is inside if
+  // |x-cx|/rx + |y-cy|/ry <= 1  (diamond) in two orientations
+  // Gemini star = combination of two thin diamonds at 45° to each other
+  const r=sz/2*0.92; // outer radius
+  const inner=0.18;  // inner radius ratio (how thin the points are)
+  for(let row=0;row<sz;row++){
+    for(let col=0;col<sz;col++){
+      const dx=(col-cx)/r, dy=(row-cy)/r;
+      // Axis-aligned diamond (top/bottom/left/right points)
+      const d1=Math.abs(dx)+Math.abs(dy);
+      // 45°-rotated diamond (diagonal points) — but Gemini star has 4 axis-aligned points
+      // Shape: |x|^p + |y|^p <= 1 with p < 1 gives star shape
+      // We use: max(|dx|,|dy|) * (|dx|+|dy|) <= threshold
+      const inStar = d1<=1.0 && Math.max(Math.abs(dx),Math.abs(dy))>=inner*d1;
+      // More precise: thin 4-pointed star via two overlapping thin diamonds
+      const thin1 = Math.abs(dx)*3 + Math.abs(dy) <= 1.05;  // horizontal petal
+      const thin2 = Math.abs(dx) + Math.abs(dy)*3 <= 1.05;  // vertical petal
+      t[row*sz+col] = (thin1||thin2) ? 1 : 0;
+    }
+  }
+  return t;
+}
+
+/* ── Auto detect — Template Matching ──────────────────────────
+   1. Get background color from corner pixel
+   2. Try several star sizes (Gemini uses ~3–5% of image)
+   3. At each size, render the star template and compute
+      normalized cross-correlation (NCC) against the image
+      in the bottom-right zone
+   4. The position with highest NCC score = star location
+──────────────────────────────────────────────────────────────── */
+function autoDetect(){
+  const W=img.width, H=img.height;
+  const minDim=Math.min(W,H);
+  const tmp=document.createElement('canvas');
+  tmp.width=W; tmp.height=H;
+  tmp.getContext('2d').drawImage(img,0,0);
+  const src=tmp.getContext('2d').getImageData(0,0,W,H).data;
+
+  const card=document.getElementById('detectedCard');
+  const chipsEl=document.getElementById('chipsEl');
+  chipsEl.innerHTML=''; card.style.display='block';
+
+  const lum=(px,py)=>{
+    const i=(py*W+px)*4;
+    return src[i]*0.299+src[i+1]*0.587+src[i+2]*0.114;
+  };
+
+  // ── Background: sample corner 4×4 patch (pure bg, no star) ──
+  let bgSum=0, bgN=0;
+  for(let dy=0;dy<4;dy++) for(let dx=0;dx<4;dx++){
+    bgSum+=lum(W-1-dx, H-1-dy); bgN++;
+  }
+  const bgL=bgSum/bgN;
+
+  // ── Search zone: bottom-right 10% ───────────────────────────
+  const frac=0.10;
+  const zW=Math.round(W*frac), zH=Math.round(H*frac);
+  const zX=W-zW, zY=H-zH;
+
+  // Pre-compute luminance diff from bg for every pixel in zone
+  const zoneLum=new Float32Array(zW*zH);
+  for(let r=0;r<zH;r++) for(let c=0;c<zW;c++)
+    zoneLum[r*zW+c]=lum(zX+c, zY+r)-bgL;  // signed: +bright, -dark
+
+  // ── Template matching at multiple scales ─────────────────────
+  // Star sizes to try: 2.5% – 6% of minDim
+  const sizes=[];
+  for(let pct=2.5;pct<=6.5;pct+=0.5)
+    sizes.push(Math.round(minDim*pct/100));
+
+  let bestScore=-Infinity, bestSz=0, bestR=0, bestC=0;
+
+  for(const sz of sizes){
+    const tpl=makeStarTemplate(sz);
+
+    // Normalize template (zero-mean, unit std)
+    let tMean=0; const tN=sz*sz;
+    for(let i=0;i<tN;i++) tMean+=tpl[i];
+    tMean/=tN;
+    let tStd=0;
+    for(let i=0;i<tN;i++) tStd+=Math.pow(tpl[i]-tMean,2);
+    tStd=Math.sqrt(tStd/tN)||1;
+    const tNorm=new Float32Array(tN);
+    for(let i=0;i<tN;i++) tNorm[i]=(tpl[i]-tMean)/tStd;
+
+    // Slide template across zone
+    const maxOffset=Math.round(sz*1.5);
+    const rStart=Math.max(0, zH-sz-maxOffset);
+    const cStart=Math.max(0, zW-sz-maxOffset);
+
+    for(let r=rStart;r<=zH-sz;r++){
+      for(let c=cStart;c<=zW-sz;c++){
+        let pMean=0;
+        for(let tr=0;tr<sz;tr++) for(let tc=0;tc<sz;tc++)
+          pMean+=zoneLum[(r+tr)*zW+(c+tc)];
+        pMean/=tN;
+
+        let pStd=0;
+        for(let tr=0;tr<sz;tr++) for(let tc=0;tc<sz;tc++)
+          pStd+=Math.pow(zoneLum[(r+tr)*zW+(c+tc)]-pMean,2);
+        pStd=Math.sqrt(pStd/tN)||1;
+
+        let ncc=0;
+        for(let tr=0;tr<sz;tr++) for(let tc=0;tc<sz;tc++){
+          const pv=(zoneLum[(r+tr)*zW+(c+tc)]-pMean)/pStd;
+          ncc+=tNorm[tr*sz+tc]*pv;
+        }
+        ncc/=tN;
+
+        // Use |NCC| — works for both bright-on-dark (positive)
+        // and dark-on-light (negative, e.g. gray star on white bg)
+        const score=Math.abs(ncc);
+        if(score>bestScore){ bestScore=score; bestSz=sz; bestR=r; bestC=c; }
+      }
+    }
+  }
+
+  autoOk=false;
+  if(bestScore>0.08){
+    // bestC/bestR is the TOP-LEFT corner of the matched template.
+    // The star's actual bounding box starts there.
+    // However NCC tends to lock slightly left of true center on asymmetric images.
+    // Shift right by a small empirical correction (10% of star size).
+    const shiftR=Math.round(bestSz*0.10);
+    autoWx=zX+bestC+shiftR; autoWy=zY+bestR;
+    autoWx=Math.min(W-bestSz, autoWx); // clamp to image
+    autoWw=bestSz; autoWh=bestSz;
+    autoOk=true;
+    setSlider('sSize','vSize',bestSz);
+    setSlider('sOffX','vOffX',W-autoWx-bestSz);
+    setSlider('sOffY','vOffY',H-autoWy-bestSz);
+    addChip(chipsEl,'✅ זוהה',`${bestSz}×${bestSz}px`,'ok');
+    addChip(chipsEl,'NCC',bestScore.toFixed(2),'');
+  } else {
+    // Fallback
+    const sz=Math.round(minDim*0.04);
+    const off=Math.round(minDim*0.012);
+    setSlider('sSize','vSize',sz);
+    setSlider('sOffX','vOffX',off);
+    setSlider('sOffY','vOffY',off);
+    addChip(chipsEl,'⚠️ לא זוהה — כוונן ידנית','','');
+  }
+}
+
+/* ── Draw debug overlay ──────────────────────────── */
+function drawDebugOverlay(){
+  const W=img.width,H=img.height;
+  const sz=parseInt(document.getElementById('sSize').value);
+  const ox=parseInt(document.getElementById('sOffX').value);
+  const oy=parseInt(document.getElementById('sOffY').value);
+  const mg=parseInt(document.getElementById('sMargin').value);
+
+  const wx=W-sz-ox,wy=H-sz-oy;
+  const fx=Math.max(0,wx-mg),fy=Math.max(0,wy-mg);
+  const fw=Math.min(W-fx,sz+mg*2),fh=Math.min(H-fy,sz+mg*2);
+
+  // Size debug canvas to match display size of cOrig
+  const displayW=cOrig.offsetWidth||cOrig.width;
+  const displayH=cOrig.offsetHeight||cOrig.height;
+  const scaleX=displayW/W;
+  const scaleY=displayH/H;
+
+  cDebug.width=displayW;cDebug.height=displayH;
+  const ctx=cDebug.getContext('2d');
+  ctx.clearRect(0,0,displayW,displayH);
+
+  // Draw fill zone (red)
+  ctx.strokeStyle='rgba(247,79,106,0.9)';
+  ctx.lineWidth=2;
+  ctx.setLineDash([4,3]);
+  ctx.strokeRect(fx*scaleX,fy*scaleY,fw*scaleX,fh*scaleY);
+  ctx.fillStyle='rgba(247,79,106,0.12)';
+  ctx.fillRect(fx*scaleX,fy*scaleY,fw*scaleX,fh*scaleY);
+
+  // Draw star zone (accent)
+  ctx.strokeStyle='rgba(124,106,247,0.95)';
+  ctx.lineWidth=1.5;
+  ctx.setLineDash([2,2]);
+  ctx.strokeRect(wx*scaleX,wy*scaleY,sz*scaleX,sz*scaleY);
+
+  ctx.setLineDash([]);
+
+  showTab('orig');
+  cDebug.style.display='block';
+}
+
+/* ── Get fill region from sliders ───────────────── */
+function getFillRegion(){
+  const W=img.width,H=img.height;
+  const sz=parseInt(document.getElementById('sSize').value);
+  const ox=parseInt(document.getElementById('sOffX').value);
+  const oy=parseInt(document.getElementById('sOffY').value);
+  // Cap margin: never more than 15% of star size (prevents pulling in wrong regions)
+  const rawMg=parseInt(document.getElementById('sMargin').value);
+  const mg=Math.min(rawMg, Math.round(sz*0.15)+2);
+  const wx=W-sz-ox,wy=H-sz-oy;
+  const fx=Math.max(0,wx-mg),fy=Math.max(0,wy-mg);
+  const fw=Math.min(W-fx,sz+mg*2),fh=Math.min(H-fy,sz+mg*2);
+  return{fx,fy,fw,fh,W,H};
+}
+
+/* ── Run fill ────────────────────────────────────── */
+function runFill(){
+  if(!img)return;
+  setProg(true,'מנתח כוכב...','',8);
+  document.getElementById('btnDl').style.display='none';
+  cDebug.style.display='none';
+
+  setTimeout(()=>{
+    let{fx,fy,fw,fh,W,H}=getFillRegion();
+
+    const tmp=document.createElement('canvas');
+    tmp.width=W;tmp.height=H;
+    tmp.getContext('2d').drawImage(img,0,0);
+    const src=tmp.getContext('2d').getImageData(0,0,W,H).data;
+
+    // ── Center-of-Mass Refinement ──────────────────────────────
+    let bgL=0, bgN=0;
+    for(let dy=0;dy<6;dy++) for(let dx=0;dx<6;dx++){
+      const i=((H-1-dy)*W+(W-1-dx))*4;
+      bgL+=src[i]*0.299+src[i+1]*0.587+src[i+2]*0.114; bgN++;
+    }
+    bgL/=bgN;
+
+    const refined=refineFillCenter(src,W,H,fx,fy,fw,fh,bgL);
+    fx=refined.fx; fy=refined.fy;
+
+    setProg(true,'משחזר פיקסלים...','',15);
+    setTimeout(()=>doSmartFill(src,W,H,fx,fy,fw,fh,null),20);
+  },30);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   UPGRADE 1 — Center-of-Mass Refinement
+   
+   After autoDetect sets the bounding box, we refine it using
+   intensity-weighted center of mass (Xcm, Ycm) so the fill
+   region is perfectly centered on the star's geometric center.
+   Called from runFill() before doSmartFill().
+══════════════════════════════════════════════════════════════ */
+function refineFillCenter(src, W, H, fx, fy, fw, fh, bgL){
+  // Compute per-pixel "star intensity" = |lum - bgL|
+  // Then compute 2D center of mass weighted by that intensity
+  let sumX=0, sumY=0, sumI=0;
+  for(let py=fy;py<fy+fh;py++){
+    for(let px=fx;px<fx+fw;px++){
+      const i=(py*W+px)*4;
+      const lum=src[i]*0.299+src[i+1]*0.587+src[i+2]*0.114;
+      const intensity=Math.abs(lum-bgL);
+      sumX+=px*intensity;
+      sumY+=py*intensity;
+      sumI+=intensity;
+    }
+  }
+  if(sumI<1) return {fx,fy,fw,fh}; // nothing to refine
+
+  const cmX=sumX/sumI;  // true geometric center X
+  const cmY=sumY/sumI;  // true geometric center Y
+
+  // Current center of bounding box
+  const boxCX=fx+fw/2;
+  const boxCY=fy+fh/2;
+
+  // Delta: how much to shift the box
+  const dX=Math.round(cmX-boxCX);
+  const dY=Math.round(cmY-boxCY);
+
+  // Apply shift (clamped to image bounds)
+  const nfx=Math.max(0, Math.min(W-fw, fx+dX));
+  const nfy=Math.max(0, Math.min(H-fh, fy+dY));
+
+  return {fx:nfx, fy:nfy, fw, fh, deltaX:dX, deltaY:dY};
+}
+
+/* ══════════════════════════════════════════════════════════════
+   CRIMINISI EXEMPLAR-BASED INPAINTING
+   
+   Full implementation of:
+   "Object Removal by Exemplar-Based Inpainting" (Criminisi 2004)
+   
+   Steps:
+   1. Find the fill-front (boundary between known and unknown)
+   2. For each front pixel, compute priority P(p) = C(p) × D(p)
+      C(p) = confidence (how much known data is in the patch)
+      D(p) = data term (strength of isophote hitting the front = edge continuity)
+   3. Pick the highest-priority front pixel
+   4. Find the best-matching patch in the source region (SSD search)
+   5. Copy the unknown pixels from the best patch
+   6. Update confidence, repeat
+══════════════════════════════════════════════════════════════ */
+function doSmartFill(src,W,H,fx,fy,fw,fh,starMask){
+  const buf=new Uint8ClampedArray(src);
+
+  // ── Mask: 0=unknown(fill), 1=known ──────────────────────────
+  const known=new Uint8Array(W*H).fill(1);
+  for(let py=fy;py<fy+fh;py++)
+    for(let px=fx;px<fx+fw;px++)
+      known[py*W+px]=0;
+  if(!starMask) { /* fill entire zone — already done */ }
+
+  // Confidence map: 1=original, decays as we fill
+  const C=new Float32Array(W*H).fill(1);
+  for(let py=fy;py<fy+fh;py++)
+    for(let px=fx;px<fx+fw;px++)
+      C[py*W+px]=0;
+
+  const PATCH=Math.max(4, Math.min(7, Math.round(Math.min(fw,fh)*0.18))); // dynamic: ~18% of fill size
+  const lum=i=>buf[i]*0.299+buf[i+1]*0.587+buf[i+2]*0.114;
+
+  // ── Noise level for grain injection ─────────────────────────
+  let noiseSum=0,noiseN=0;
+  for(let py=Math.max(0,fy-4);py<Math.min(H,fy+fh+4);py++){
+    for(let px=Math.max(0,fx-4);px<Math.min(W,fx+fw+4);px++){
+      if(px>=fx&&px<fx+fw&&py>=fy&&py<fy+fh)continue;
+      const i=(py*W+px)*4,i2=(py*W+Math.min(W-1,px+1))*4;
+      const d=Math.abs(buf[i]-buf[i2])+Math.abs(buf[i+1]-buf[i2+1])+Math.abs(buf[i+2]-buf[i2+2]);
+      noiseSum+=d/3;noiseN++;
+    }
+  }
+  const grainSigma=Math.max(0.3,(noiseSum/Math.max(1,noiseN))*0.3);
+  let _sp=null,_hs=false;
+  function gauss(){if(_hs){_hs=false;return _sp;}let u,v,s;do{u=Math.random()*2-1;v=Math.random()*2-1;s=u*u+v*v;}while(s>=1||!s);const m=Math.sqrt(-2*Math.log(s)/s);_sp=v*m;_hs=true;return u*m;}
+
+  // Count unknown pixels
+  let remaining=0;
+  for(let py=fy;py<fy+fh;py++)
+    for(let px=fx;px<fx+fw;px++)
+      if(!known[py*W+px])remaining++;
+  const totalUnknown=remaining;
+
+  // ── Compute image gradients (for D term) ────────────────────
+  const Gx=new Float32Array(W*H);
+  const Gy=new Float32Array(W*H);
+  for(let py=1;py<H-1;py++){
+    for(let px=1;px<W-1;px++){
+      if(!known[py*W+px])continue;
+      Gx[py*W+px]=(lum((py*W+px+1)*4)-lum((py*W+px-1)*4))/2;
+      Gy[py*W+px]=(lum(((py+1)*W+px)*4)-lum(((py-1)*W+px)*4))/2;
+    }
+  }
+
+  // ── Main Criminisi loop ──────────────────────────────────────
+  let iter=0;
+  const MAX_ITER=totalUnknown+10;
+
+  function step(){
+    if(remaining<=0||iter>MAX_ITER){
+      setProg(true,'מחדד פרטים...','',86);
+      const wF=new Uint8Array(W*H);
+      for(let py=fy;py<fy+fh;py++)
+        for(let px=fx;px<fx+fw;px++)
+          if(C[py*W+px]<1)wF[py*W+px]=1;
+      refinementPass(buf,W,H,fx,fy,fw,fh,wF,()=>finalize(buf,W,H,fx,fy,fw,fh,wF));
+      return;
+    }
+
+    // ── 1. Find fill-front pixels ──────────────────────────────
+    const front=[];
+    for(let py=fy;py<fy+fh;py++){
+      for(let px=fx;px<fx+fw;px++){
+        if(known[py*W+px])continue;
+        // Is any 4-neighbor known?
+        let onFront=false;
+        for(const[dx,dy]of[[-1,0],[1,0],[0,-1],[0,1]]){
+          const nx=px+dx,ny=py+dy;
+          if(nx>=0&&ny>=0&&nx<W&&ny<H&&known[ny*W+nx]){onFront=true;break;}
+        }
+        if(onFront)front.push([px,py]);
+      }
+    }
+    if(!front.length){remaining=0;step();return;}
+
+    // ── 2. Compute priority for each front pixel ───────────────
+    let bestP=-1,bestPx=front[0][0],bestPy=front[0][1];
+
+    for(const[px,py]of front){
+      // Confidence term C(p): avg confidence in patch ∩ known
+      let cSum=0,cN=0;
+      for(let dy=-PATCH;dy<=PATCH;dy++){
+        for(let dx=-PATCH;dx<=PATCH;dx++){
+          const nx=px+dx,ny=py+dy;
+          if(nx<0||ny<0||nx>=W||ny>=H)continue;
+          cSum+=C[ny*W+nx];cN++;
+        }
+      }
+      const Cp=cN>0?cSum/cN:0;
+
+      // Data term D(p): isophote direction dot normal to front
+      // Normal to front: gradient of mask (pointing outward)
+      let nx_=0,ny_=0;
+      for(const[dx,dy]of[[-1,0],[1,0],[0,-1],[0,1]]){
+        const nnx=px+dx,nny=py+dy;
+        if(nnx>=0&&nny>=0&&nnx<W&&nny<H)
+          if(known[nny*W+nnx]){nx_+=dx;ny_+=dy;}
+      }
+      const nLen=Math.sqrt(nx_*nx_+ny_*ny_)||1;
+      nx_/=nLen;ny_/=nLen;
+
+      // Isophote at p: perpendicular to gradient
+      const gx=Gx[py*W+px], gy=Gy[py*W+px];
+      const iso_x=-gy, iso_y=gx; // perpendicular to gradient = isophote direction
+      const Dp=Math.abs(iso_x*nx_+iso_y*ny_)/255+0.001;
+
+      const priority=Cp*Dp;
+      if(priority>bestP){bestP=priority;bestPx=px;bestPy=py;}
+    }
+
+    const px=bestPx,py=bestPy;
+
+    // ── 3. Find best matching patch ────────────────────────────
+    // Build the "query" patch around (px,py) using only known pixels
+    const qR=[],qG=[],qB=[];
+    const qMask=[];
+    for(let dy=-PATCH;dy<=PATCH;dy++){
+      for(let dx=-PATCH;dx<=PATCH;dx++){
+        const nx=px+dx,ny=py+dy;
+        if(nx<0||ny<0||nx>=W||ny>=H||!known[ny*W+nx]){
+          qR.push(0);qG.push(0);qB.push(0);qMask.push(0);
+        } else {
+          const i=(ny*W+nx)*4;
+          qR.push(buf[i]);qG.push(buf[i+1]);qB.push(buf[i+2]);qMask.push(1);
+        }
+      }
+    }
+    const patchD=2*PATCH+1;
+    const nKnown=qMask.reduce((a,b)=>a+b,0);
+
+    // Search window: around the fill zone in all directions
+    // The star is at the bottom-right corner — background pixels exist
+    // both to the left/above AND at the very corner (right/below edge of image).
+    const SEARCH_PAD=Math.round(Math.max(fw,fh)*3);
+    const sx=Math.max(PATCH, fx-SEARCH_PAD);
+    const sy=Math.max(PATCH, fy-SEARCH_PAD);
+    const ex=Math.min(W-1-PATCH, fx+fw+SEARCH_PAD);
+    const ey=Math.min(H-1-PATCH, fy+fh+SEARCH_PAD);
+    const STEP=2;
+
+    let bestSSD=Infinity, bestCx=-1, bestCy=-1;
+
+    for(let cy=sy;cy<=ey;cy+=STEP){
+      for(let cx=sx;cx<=ex;cx+=STEP){
+        // Skip if patch center is inside fill zone
+        if(cx>=fx&&cx<fx+fw&&cy>=fy&&cy<fy+fh)continue;
+        // All pixels in candidate patch must be known
+        let allKnown=true;
+        for(let dy=-PATCH;dy<=PATCH&&allKnown;dy++)
+          for(let dx=-PATCH;dx<=PATCH&&allKnown;dx++){
+            const nx=cx+dx,ny=cy+dy;
+            if(nx<0||ny<0||nx>=W||ny>=H){allKnown=false;break;}
+            if(!known[ny*W+nx]){allKnown=false;break;}
+          }
+        if(!allKnown)continue;
+
+        // Pure SSD over known pixels of query patch
+        let ssd=0,qi=0;
+        for(let dy=-PATCH;dy<=PATCH;dy++){
+          for(let dx=-PATCH;dx<=PATCH;dx++,qi++){
+            if(!qMask[qi])continue;
+            const ni=((cy+dy)*W+(cx+dx))*4;
+            const dr=qR[qi]-buf[ni],dg=qG[qi]-buf[ni+1],db=qB[qi]-buf[ni+2];
+            ssd+=dr*dr+dg*dg+db*db;
+          }
+        }
+        ssd/=Math.max(1,nKnown);
+        if(ssd<bestSSD){bestSSD=ssd;bestCx=cx;bestCy=cy;}
+      }
+    }
+
+    if(bestCx<0){
+      // Fallback: use nearest known pixel
+      bestCx=px; bestCy=py;
+      for(const[dx,dy]of[[-1,0],[1,0],[0,-1],[0,1],[0,1],[1,1],[-1,1],[1,-1],[-1,-1]]){
+        const nx=px+dx,ny=py+dy;
+        if(nx>=0&&ny>=0&&nx<W&&ny<H&&known[ny*W+nx]){bestCx=nx;bestCy=ny;break;}
+      }
+    }
+
+    // ── 4. Copy unknown pixels from best patch ─────────────────
+    let newConf=0,nConf=0;
+    for(let dy=-PATCH;dy<=PATCH;dy++){
+      for(let dx=-PATCH;dx<=PATCH;dx++){
+        const tx=px+dx,ty=py+dy;
+        if(tx<0||ty<0||tx>=W||ty>=H)continue;
+        if(known[ty*W+tx])continue; // only fill unknown pixels
+        const si=((bestCy+dy)*W+(bestCx+dx))*4;
+        const di=(ty*W+tx)*4;
+        // Add slight grain for realism
+        buf[di]  =Math.max(0,Math.min(255,buf[si]  +Math.round(gauss()*grainSigma)));
+        buf[di+1]=Math.max(0,Math.min(255,buf[si+1]+Math.round(gauss()*grainSigma)));
+        buf[di+2]=Math.max(0,Math.min(255,buf[si+2]+Math.round(gauss()*grainSigma)));
+        buf[di+3]=255;
+        known[ty*W+tx]=1;
+        C[ty*W+tx]=C[py*W+px]; // propagate confidence
+        remaining--;
+        // Update gradient for newly known pixel
+        if(tx>0&&tx<W-1&&ty>0&&ty<H-1){
+          Gx[ty*W+tx]=(lum((ty*W+tx+1)*4)-lum((ty*W+tx-1)*4))/2;
+          Gy[ty*W+tx]=(lum(((ty+1)*W+tx)*4)-lum(((ty-1)*W+tx)*4))/2;
+        }
+        newConf+=C[ty*W+tx];nConf++;
+      }
+    }
+
+    iter++;
+    const pct=15+Math.round((1-remaining/Math.max(1,totalUnknown))*72);
+
+    if(iter%8===0||remaining<=0){
+      const filled=totalUnknown-remaining;
+      const pctDisp=Math.min(99,Math.round(filled/Math.max(1,totalUnknown)*100));
+      setProg(true,`שחזור מבוסס טלאים...`,`${filled} / ${totalUnknown} פיקסלים (${pctDisp}%)`,pct);
+      setTimeout(step,0);
+    } else {
+      step();
+    }
+  }
+
+  step();
+}
+
+/* ── Refinement pass: re-patch inner filled pixels ──────────── */
+function refinementPass(buf,W,H,fx,fy,fw,fh,wasFilled,onDone){
+  setProg(true,'מחדד פרטים...','',88);
+
+  const PATCH=Math.max(3,Math.min(5,Math.round(Math.min(fw,fh)*0.15)));
+  const SEARCH_PAD=Math.round(Math.max(fw,fh)*3);
+  const sx=Math.max(PATCH,fx-SEARCH_PAD);
+  const sy=Math.max(PATCH,fy-SEARCH_PAD);
+  const ex=Math.min(W-1-PATCH,fx+fw+SEARCH_PAD);
+  const ey=Math.min(H-1-PATCH,fy+fh+SEARCH_PAD);
+  const STEP=3; // coarser stride = faster
+
+  // Collect inner pixels to refine (de >= 2)
+  const innerPixels=[];
+  for(let py=fy+2;py<fy+fh-2;py++)
+    for(let px=fx+2;px<fx+fw-2;px++)
+      if(wasFilled[py*W+px]) innerPixels.push([px,py]);
+
+  let qi=0;
+  const total=innerPixels.length;
+  if(total===0){onDone();return;}
+
+  function batch(){
+    const BATCH=80; // small batch — refinement is expensive per pixel
+    const end=Math.min(qi+BATCH,total);
+    for(;qi<end;qi++){
+      const[px,py]=innerPixels[qi];
+
+      // Build full query patch (all neighbors now known)
+      const qR=[],qG=[],qB=[],qM=[];
+      for(let dy=-PATCH;dy<=PATCH;dy++){
+        for(let dx=-PATCH;dx<=PATCH;dx++){
+          const nx=px+dx,ny=py+dy;
+          if(nx<0||ny<0||nx>=W||ny>=H){qR.push(0);qG.push(0);qB.push(0);qM.push(0);continue;}
+          const i=(ny*W+nx)*4;
+          qR.push(buf[i]);qG.push(buf[i+1]);qB.push(buf[i+2]);qM.push(1);
+        }
+      }
+      const nK=qM.reduce((a,b)=>a+b,0);
+      if(nK<4)continue;
+
+      let bestSSD=Infinity,bestCx=-1,bestCy=-1;
+      for(let cy=sy;cy<=ey;cy+=STEP){
+        for(let cx=sx;cx<=ex;cx+=STEP){
+          if(cx>=fx&&cx<fx+fw&&cy>=fy&&cy<fy+fh)continue;
+          let ok=true;
+          for(let dy=-PATCH;dy<=PATCH&&ok;dy++)
+            for(let dx=-PATCH;dx<=PATCH&&ok;dx++){
+              const nx=cx+dx,ny=cy+dy;
+              if(nx<0||ny<0||nx>=W||ny>=H){ok=false;break;}
+              if(wasFilled[ny*W+nx]){ok=false;break;}
+            }
+          if(!ok)continue;
+          let ssd=0,mi=0;
+          for(let dy=-PATCH;dy<=PATCH;dy++){
+            for(let dx=-PATCH;dx<=PATCH;dx++,mi++){
+              if(!qM[mi])continue;
+              const ni=((cy+dy)*W+(cx+dx))*4;
+              const dr=qR[mi]-buf[ni],dg=qG[mi]-buf[ni+1],db=qB[mi]-buf[ni+2];
+              ssd+=dr*dr+dg*dg+db*db;
+            }
+          }
+          ssd/=Math.max(1,nK);
+          if(ssd<bestSSD){bestSSD=ssd;bestCx=cx;bestCy=cy;}
+        }
+      }
+
+      if(bestCx>=0){
+        const si=(bestCy*W+bestCx)*4,di=(py*W+px)*4;
+        buf[di]  =Math.round(buf[di]*0.4+buf[si]*0.6);
+        buf[di+1]=Math.round(buf[di+1]*0.4+buf[si+1]*0.6);
+        buf[di+2]=Math.round(buf[di+2]*0.4+buf[si+2]*0.6);
+      }
+    }
+
+    const pct=88+Math.round(qi/Math.max(1,total)*7);
+    setProg(true,'מחדד פרטים...',`${qi}/${total}`,pct);
+    if(qi<total) setTimeout(batch,0);
+    else onDone();
+  }
+  setTimeout(batch,0);
+}
+
+/* ── Finalize: seam blend ─────────────────────────────────── */
+function finalize(buf,W,H,fx,fy,fw,fh,wasFilled){
+  setProg(true,'מחליק תפר...','',95);
+  setTimeout(()=>{
+    const out=new Uint8ClampedArray(buf);
+    // 3-pass seam correction: only border pixels
+    for(let pass=0;pass<3;pass++){
+      const prev=new Uint8ClampedArray(out);
+      for(let py=fy;py<fy+fh;py++){
+        for(let px=fx;px<fx+fw;px++){
+          if(!wasFilled||!wasFilled[py*W+px])continue;
+          const de=Math.min(px-fx,fx+fw-1-px,py-fy,fy+fh-1-py);
+          if(de>1)continue;
+          let or_=0,og=0,ob=0,oc=0;
+          for(const[dx,dy]of[[-1,0],[1,0],[0,-1],[0,1]]){
+            const nx=px+dx,ny=py+dy;
+            if(nx<0||ny<0||nx>=W||ny>=H)continue;
+            if(wasFilled&&wasFilled[ny*W+nx])continue;
+            const ni=(ny*W+nx)*4;
+            or_+=prev[ni];og+=prev[ni+1];ob+=prev[ni+2];oc++;
+          }
+          if(oc>0){
+            const str=de===0?0.7:0.3;
+            const i=(py*W+px)*4;
+            out[i]  =Math.round(prev[i]*(1-str)+(or_/oc)*str);
+            out[i+1]=Math.round(prev[i+1]*(1-str)+(og/oc)*str);
+            out[i+2]=Math.round(prev[i+2]*(1-str)+(ob/oc)*str);
+          }
+        }
+      }
+    }
+
+    cClean.width=W;cClean.height=H;
+    const ctx=cClean.getContext('2d');
+    const cleanId=ctx.createImageData(W,H);
+    cleanId.data.set(out);ctx.putImageData(cleanId,0,0);
+
+    // ── Zoomed before/after thumbnails ───────────────────
+    // Show 2.5× context around the fill zone so you can
+    // clearly see the watermark area and the fix
+    const PAD=1.8;
+    const zx=Math.max(0,Math.round(fx-(fw*PAD-fw)/2));
+    const zy=Math.max(0,Math.round(fy-(fh*PAD-fh)/2));
+    const zw=Math.min(W-zx,Math.round(fw*PAD));
+    const zh=Math.min(H-zy,Math.round(fh*PAD));
+
+    const tOrig=document.getElementById('cThumbOrig');
+    const tClean=document.getElementById('cThumbClean');
+    tOrig.width=zw;tOrig.height=zh;
+    tClean.width=zw;tClean.height=zh;
+
+    // Before: draw from original img
+    tOrig.getContext('2d').drawImage(img,zx,zy,zw,zh,0,0,zw,zh);
+
+    // After: copy from our clean pixel buffer
+    const slice=new ImageData(new Uint8ClampedArray(out.buffer,0,out.length),W,H);
+    const offscreen=document.createElement('canvas');
+    offscreen.width=W;offscreen.height=H;
+    offscreen.getContext('2d').putImageData(slice,0,0);
+    tClean.getContext('2d').drawImage(offscreen,zx,zy,zw,zh,0,0,zw,zh);
+
+    document.getElementById('resultStrip').style.display='block';
+    setProg(false);
+    showTab('clean');
+    document.getElementById('btnDl').style.display='flex';
+    toast('✦ הכוכב הוסר!','ok');
+  },20);
+}
+
+/* ── Helpers ─────────────────────────────────────── */
+function toggleStarCard(){
+  const body=document.getElementById('starCardBody');
+  const arrow=document.getElementById('starCardArrow');
+  const open=body.style.display==='none';
+  body.style.display=open?'block':'none';
+  arrow.style.transform=open?'rotate(180deg)':'';
+}
+function setProg(show,label='',sub='',pct=0){
+  const card=document.getElementById('progCard');
+  const barEl=document.getElementById('progBar');
+  card.classList.toggle('show',show);
+  if(show){
+    document.getElementById('progLabel').textContent=label;
+    document.getElementById('progSub').textContent=sub;
+    barEl.style.width=pct+'%';
+    barEl.classList.toggle('active', pct>0&&pct<100);
+  } else {
+    barEl.classList.remove('active');
+  }
+}
+function setSlider(id,vid,val){
+  const el=document.getElementById(id);
+  el.value=Math.max(parseInt(el.min),Math.min(parseInt(el.max),Math.round(val)));
+  document.getElementById(vid).textContent=el.value;
+}
+function addChip(parent,label,val,cls){
+  const c=document.createElement('div');
+  c.className='chip'+(cls?' '+cls:'');
+  c.innerHTML=`${label}: <b>${val}</b>`;
+  parent.appendChild(c);
+}
+function download(){
+  const a=document.createElement('a');
+  a.download=fname+'_clean.png';
+  a.href=cClean.toDataURL('image/png');a.click();
+}
+function reset(){
+  img=null;rw.classList.remove('show');dz.style.display='';fi.value='';
+  mainGrid.style.display='none';setProg(false);
+  document.getElementById('detectedCard').style.display='none';
+  document.getElementById('btnDl').style.display='none';
+}
+let tt;
+function toast(msg,type='ok'){
+  const el=document.getElementById('toast');
+  el.textContent=msg;el.className='toast show '+type;
+  clearTimeout(tt);tt=setTimeout(()=>el.classList.remove('show'),3500);
+}
+</script>
+</body>
+</html>
